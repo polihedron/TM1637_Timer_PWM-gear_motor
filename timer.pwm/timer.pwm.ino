@@ -104,16 +104,15 @@ void menuTimer() {
 
 void menuPWM()  {
   
-  while ( pwmset ) {
   value += encoder -> getValue();
           if ( value > lastValue ) {
             if ( dutyPWM >= 100 )
               dutyPWM = 100;                                          // max duty 100%
             else
-              dutyPWM++; 
+              dutyPWM += 5;                                           // one rotary step is 5%
             } 
           else if ( value < lastValue && dutyPWM > 0 )
-            dutyPWM--;
+            dutyPWM -= 5;
             
     PWM = dutyPWM;
     if ( lastPWM != PWM ) {
@@ -130,7 +129,6 @@ void menuPWM()  {
   buttonCheck();                                                      // check rotary encoder button
   timeCheck();                                                        // check timer if finished
   
-  }
 }
 
 
