@@ -1,11 +1,15 @@
 #include <TM1637Display.h>
 #include <ClickEncoder.h>
 #include <TimerOne.h>
+#include <EEPROM.h>
 
 #define numberOfcentiSeconds( _time_ ) ( _time_ / 10 )                // amount of centiseconds
 #define numberOfSeconds( _time_ ) (( _time_ / 1000 ) % 60 )           // amount of seconds
 #define numberOfMinutes( _time_ ) ((( _time_ / 1000 ) / 60 ) % 60 )   // amount of minutes 
 #define numberOfHours( _time_ ) (( _time_ / 1000 ) / 3600 )           // amount of hours
+
+#define config_version "v1"
+#define config_start 16
 
 const int enc_pin_A = 5;                                              // rotary encoder first data pin A at D5 pin
 const int enc_pin_B = 4;                                              // rotary encoder second data pin B at D4 pin, if the encoder moved in the wrong direction, swap A and B
@@ -17,7 +21,16 @@ bool colon = true;                                                    // timer c
 bool done = true;                                                     
 int PWM, lastPWM, dutyPWM, timerHours, timerMinutes, timerSeconds;
 int16_t value, lastValue;
-unsigned long colon_ms, timeLimit, timeRemaining;
+unsigned long colon_ms, savemillis, timeLimit, timeRemaining;
+
+
+uint8_t save[]={
+  SEG_A|SEG_F|SEG_G|SEG_C|SEG_D,                                      // S
+  SEG_A|SEG_B|SEG_F|SEG_G|SEG_E|SEG_C,                                // A
+  SEG_F|SEG_E|SEG_C|SEG_D|SEG_B,                                      // V
+  SEG_A|SEG_F|SEG_D|SEG_G|SEG_E,                                      // E
+};
+
 
 TM1637Display display( 2, 3 );                                        // TM1637 CLK connected to D2 and DIO to D3
 
@@ -27,15 +40,64 @@ ClickEncoder *encoder;
 
 void timerIsr() {                                                     // encoder interupt service routine
   
-  encoder->service();  
+  encoder -> service();  
   
+}
+
+
+typedef struct                                                        // settings to save in eeprom
+{
+    char version[3];
+    int timerHours;
+    int timerMinutes;
+    int PWM;
+    
+} settings;
+
+
+settings cfg = {
+      config_version,
+     12,                                                              // int timerHours  
+     0,                                                               // int timerMinutes
+     50                                                               // int PWM
+};
+
+
+
+bool loadConfig() {                                                   
+
+  if (EEPROM.read(config_start + 0) == config_version[0] &&
+      EEPROM.read(config_start + 1) == config_version[1]){
+
+    for (int i = 0; i < sizeof( cfg ); i++){
+      *((char*)&cfg + i) = EEPROM.read(config_start + i);
+    }
+    Serial.println("configuration loaded:");
+    Serial.println(cfg.version);
+
+    timerHours = cfg.timerHours;
+    timerMinutes = cfg.timerMinutes;
+    PWM = cfg.PWM;
+    return true;
+
+  }
+  return false;
+
+}
+
+
+
+void saveConfig() {
+  for (int i = 0; i < sizeof( cfg ); i++)
+    EEPROM.write(config_start + i, *((char*)&cfg + i));
+    Serial.println("configuration saved");
 }
 
 
 
 void setup(){
   
-  Serial.begin( 9600 );                                               // serial for debug
+  Serial.begin( 115200 );                                             // serial for debug
 
   display.setBrightness( 0x02 );                                      // low brightness, to mimimize LM1117-5V current and overheating, maximum is 7
  
@@ -48,9 +110,12 @@ void setup(){
   lastValue = 0;
   PWM = 50;                                                           // 50% duty cycle as default
   colon_ms = millis();
-  timerHours = 0;
-  timerMinutes = 0;
-  timerSeconds = 0;
+  savemillis = -2000;
+
+  if(!loadConfig()){                                                  // checking and loading configuration
+    Serial.println("configuration not loaded!");
+    saveConfig();                                                     // default values if no config
+  }
   
 }
 
@@ -65,30 +130,32 @@ void menuTimer() {
       value += encoder -> getValue();
             if ( value > lastValue ) {
               timerMinutes += 30;                                     // one rotary step is 30 minutes
-              if (timerMinutes >= 99) {
+              if (timerHours >= 99) {
                 timerHours = 99;                                      // max 99 hours
                 timerMinutes = 0;
               }
               if (timerMinutes >= 60) {
                 timerHours++;
                 timerMinutes = 0;
-              }
-              calculateHours( true );     
+              }   
             } 
             else if ( value < lastValue ) {
-              if (timerMinutes == 0 && timerHours > 0) {
+              if ( timerMinutes > 0) timerMinutes -= 30;  
+              else if (timerMinutes == 0 && timerHours > 0) {
                 timerHours--;
                 timerMinutes = 30;
               }
-              else if ( timerMinutes == 30) timerMinutes = 0;
-              calculateHours( true );
             }
             if ( value != lastValue ) {
               lastValue = value;
               Serial.print( "Encoder value: " );
               Serial.println( value );
             }
-                                                                      // display time to countdown, leading zeros active if no hours, colon active
+    
+   if (millis() - savemillis < 2000)                                  // show SAVE if saving config to eeprom                          
+    display.setSegments(save, 4, 0);                                                                  
+                                                                      
+   else                                                               // display time to countdown, leading zeros active if no hours, colon active
     display.showNumberDecEx( timeToInteger(), 0x80 >> true , timerHours == 0 );
     
     buttonCheck();                                                    // check if rotary encoder button pressed
@@ -188,27 +255,6 @@ int timeToInteger() {
 
 
 
-void calculateHours( bool asce ) {
-  
-  if ( timerSeconds == -1 && !asce ) {
-    if ( timerMinutes > 0 || timerHours > 0 ) {
-      timerMinutes--;
-      timerSeconds = 59; 
-    }   
-  }
-  
-  if ( timerMinutes == 60 && asce ) {
-    timerHours++;
-    timerMinutes = 0;  
-  } 
-  else if ( timerMinutes == -1 && !asce && timerHours > 0 ) {
-    timerHours--;
-    timerMinutes = 59;
-  }
-}
-
-
-
 void buttonCheck() {
   
  ClickEncoder::Button b = encoder -> getButton();
@@ -220,7 +266,6 @@ void buttonCheck() {
       switch ( b ) {
          VERBOSECASE( ClickEncoder::Pressed );
          VERBOSECASE( ClickEncoder::Released )
-         VERBOSECASE( ClickEncoder::DoubleClicked )
          
        case ClickEncoder::Clicked:
          Serial.println( "ClickEncoder::Clicked" );
@@ -243,6 +288,17 @@ void buttonCheck() {
          Serial.println( "ClickEncoder::Held" );
          if ( !done ) timerFinished();
        break;
+
+       case ClickEncoder::DoubleClicked:                              // save config if rotary encoder button double clicked
+         Serial.println( "ClickEncoder::DoubleClicked" );
+          if ( done && !isTimerFinished() ) {
+            cfg.timerHours = timerHours;
+            cfg.timerMinutes = timerMinutes;
+            cfg.PWM = PWM;
+            saveConfig();
+            savemillis = millis();                                    // time marker used to show SAVE on display - menuTimer()
+          }
+          
       } 
    }
 }
