@@ -24,7 +24,7 @@ int16_t value, lastValue;
 unsigned long colon_ms, savemillis, timeLimit, timeRemaining;
 
 
-uint8_t save[]={
+uint8_t save[] = {
   SEG_A|SEG_F|SEG_G|SEG_C|SEG_D,                                      // S
   SEG_A|SEG_B|SEG_F|SEG_G|SEG_E|SEG_C,                                // A
   SEG_F|SEG_E|SEG_C|SEG_D|SEG_B,                                      // V
@@ -45,8 +45,7 @@ void timerIsr() {                                                     // encoder
 }
 
 
-typedef struct                                                        // settings to save in eeprom
-{
+typedef struct {                                                       // settings to save in eeprom
     char version[3];
     int timerHours;
     int timerMinutes;
@@ -56,7 +55,7 @@ typedef struct                                                        // setting
 
 
 settings cfg = {
-      config_version,
+     config_version,
      12,                                                              // int timerHours  
      0,                                                               // int timerMinutes
      50                                                               // int PWM
@@ -66,14 +65,14 @@ settings cfg = {
 
 bool loadConfig() {                                                   
 
-  if (EEPROM.read(config_start + 0) == config_version[0] &&
-      EEPROM.read(config_start + 1) == config_version[1]){
+  if ( EEPROM.read( config_start + 0 ) == config_version[0] &&
+      EEPROM.read( config_start + 1 ) == config_version[1] ){
 
-    for (int i = 0; i < sizeof( cfg ); i++){
-      *((char*)&cfg + i) = EEPROM.read(config_start + i);
+    for ( int i = 0; i < sizeof( cfg ); i++){
+      *(( char* )&cfg + i) = EEPROM.read( config_start + i );
     }
-    Serial.println("configuration loaded:");
-    Serial.println(cfg.version);
+    Serial.println( "configuration loaded:" );
+    Serial.println( cfg.version );
 
     timerHours = cfg.timerHours;
     timerMinutes = cfg.timerMinutes;
@@ -88,14 +87,14 @@ bool loadConfig() {
 
 
 void saveConfig() {
-  for (int i = 0; i < sizeof( cfg ); i++)
-    EEPROM.write(config_start + i, *((char*)&cfg + i));
-    Serial.println("configuration saved");
+  for ( int i = 0; i < sizeof( cfg ); i++ )
+    EEPROM.write( config_start + i, *(( char* )&cfg + i ));
+    Serial.println( "configuration saved" );
 }
 
 
 
-void setup(){
+void setup()  {
   
   Serial.begin( 115200 );                                             // serial for debug
 
@@ -112,8 +111,8 @@ void setup(){
   colon_ms = millis();
   savemillis = -2000;
 
-  if(!loadConfig()){                                                  // checking and loading configuration
-    Serial.println("configuration not loaded!");
+  if ( !loadConfig() ) {                                                  // checking and loading configuration
+    Serial.println( "configuration not loaded!" );
     saveConfig();                                                     // default values if no config
   }
   
@@ -130,18 +129,18 @@ void menuTimer() {
       value += encoder -> getValue();
             if ( value > lastValue ) {
               timerMinutes += 30;                                     // one rotary step is 30 minutes
-              if (timerHours >= 99) {
+              if ( timerHours >= 99 ) {
                 timerHours = 99;                                      // max 99 hours
                 timerMinutes = 0;
               }
-              if (timerMinutes >= 60) {
+              if ( timerMinutes >= 60 ) {
                 timerHours++;
                 timerMinutes = 0;
               }   
             } 
             else if ( value < lastValue ) {
               if ( timerMinutes > 0) timerMinutes -= 30;  
-              else if (timerMinutes == 0 && timerHours > 0) {
+              else if ( timerMinutes == 0 && timerHours > 0 ) {
                 timerHours--;
                 timerMinutes = 30;
               }
@@ -152,11 +151,11 @@ void menuTimer() {
               Serial.println( value );
             }
     
-   if (millis() - savemillis < 2000)                                  // show SAVE if saving config to eeprom                          
-    display.setSegments(save, 4, 0);                                                                  
+   if ( millis() - savemillis < 2000 )                                  // show SAVE if saving config to eeprom                          
+    display.setSegments( save, 4, 0 );                                                                  
                                                                       
    else                                                               // display time to countdown, leading zeros active if no hours, colon active
-    display.showNumberDecEx( timeToInteger(), 0x80 >> true , timerHours == 0 );
+    display.showNumberDecEx( timeToInteger( timerHours, timerMinutes ), 0x80 >> true , timerHours == 0 );
     
     buttonCheck();                                                    // check if rotary encoder button pressed
     
@@ -234,8 +233,8 @@ void countdown() {
     }
    }
                                                                       // show time, hours in first two positions, with colon and leading zeros enabled 
-   display.showNumberDecEx( n_minutes, 0x80 >> colon, true, 2, 2 );
-   display.showNumberDecEx( n_hours, 0x80 >> colon, true, 2, 0 );
+
+   display.showNumberDecEx( timeToInteger( n_hours, n_minutes ), 0x80 >> colon, timerHours == 0 );
 
    buttonCheck();                                                     // check rotary encoder button
    timeCheck();                                                       // check timer if finished
@@ -244,11 +243,12 @@ void countdown() {
 
 
 
-int timeToInteger() {
+int timeToInteger( int _hours, int _minutes ) {
   
   int result = 0;
-  result += timerHours * 100;
-  result += timerMinutes;
+  result += _hours * 100;
+  result += _minutes;
+  
   return result;
   
 }
@@ -309,7 +309,7 @@ void timeCheck() {
   
   timeRemaining = timeLimit - millis();                               // calculate time remaining
     
-  if ( timeRemaining < 100 ) timerFinished();                         // timer reset if coundown finished
+  if ( timeRemaining < 500 ) timerFinished();                         // timer reset if coundown finished
 
 }
 
@@ -342,7 +342,7 @@ void timerFinished()  {
 void loop() {
   
   if ( !pwmset ) {
-    if (done) menuTimer();
+    if ( done ) menuTimer();
     else countdown();
   }
   else
