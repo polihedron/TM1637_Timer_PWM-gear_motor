@@ -3,13 +3,23 @@
 #include <TimerOne.h>                                                // https://playground.arduino.cc/Code/Timer1/
 #include <EEPROM.h>
 
-#define numberOfcentiSeconds( _time_ ) ( _time_ / 10 )                // amount of centiseconds
+#define numberOfcentiSeconds( _time_ ) (( _time_ / 10 ) % 100 )       // amount of centiseconds
 #define numberOfSeconds( _time_ ) (( _time_ / 1000 ) % 60 )           // amount of seconds
 #define numberOfMinutes( _time_ ) ((( _time_ / 1000 ) / 60 ) % 60 )   // amount of minutes 
 #define numberOfHours( _time_ ) (( _time_ / 1000 ) / 3600 )           // amount of hours
 
 #define config_version "v1"
 #define config_start 16
+
+//#define DEBUG
+
+#ifdef DEBUG
+  #define DEBUG_PRINT(x)    Serial.print(x)
+  #define DEBUG_PRINTLN(x)  Serial.println(x)
+#else
+  #define DEBUG_PRINT(x)
+  #define DEBUG_PRINTLN(x) 
+#endif
 
 const int enc_pin_A = 5;                                              // rotary encoder first data pin A at D5 pin
 const int enc_pin_B = 4;                                              // rotary encoder second data pin B at D4 pin, if the encoder moved in the wrong direction, swap A and B
@@ -21,7 +31,7 @@ bool colon = true;                                                    // timer c
 bool done = true;                                                     
 int PWM, lastPWM, dutyPWM, timerHours, timerMinutes, timerSeconds;
 int16_t value, lastValue;
-unsigned long colon_ms, savemillis, timeLimit, timeRemaining;
+unsigned long colon_ms, savemillis, timeLimit, timeRemaining, lastPWMTime;
 
 
 uint8_t save[] = {
@@ -71,8 +81,8 @@ bool loadConfig() {
     for ( int i = 0; i < sizeof( cfg ); i++){
       *(( char* )&cfg + i) = EEPROM.read( config_start + i );
     }
-    Serial.println( "configuration loaded:" );
-    Serial.println( cfg.version );
+    DEBUG_PRINTLN( "configuration loaded:" );
+    DEBUG_PRINTLN( cfg.version );
 
     timerHours = cfg.timerHours;
     timerMinutes = cfg.timerMinutes;
@@ -89,7 +99,7 @@ bool loadConfig() {
 void saveConfig() {
   for ( int i = 0; i < sizeof( cfg ); i++ )
     EEPROM.write( config_start + i, *(( char* )&cfg + i ));
-    Serial.println( "configuration saved" );
+    DEBUG_PRINTLN( "configuration saved" );
 }
 
 
@@ -112,7 +122,7 @@ void setup()  {
   savemillis = -2000;
 
   if ( !loadConfig() ) {                                                  // checking and loading configuration
-    Serial.println( "configuration not loaded!" );
+    DEBUG_PRINTLN( "configuration not loaded!" );
     saveConfig();                                                     // default values if no config
   }
   
@@ -147,8 +157,8 @@ void menuTimer() {
             }
             if ( value != lastValue ) {
               lastValue = value;
-              Serial.print( "Encoder value: " );
-              Serial.println( value );
+              DEBUG_PRINT( "Encoder value: " );
+              DEBUG_PRINTLN( value );
             }
     
    if ( millis() - savemillis < 2000 )                                  // show SAVE if saving config to eeprom                          
@@ -182,14 +192,20 @@ void menuPWM()  {
             
     PWM = dutyPWM;
     if ( lastPWM != PWM ) {
-      Serial.print( "PWM value: " );
-      Serial.println( PWM );
+      DEBUG_PRINT( "PWM value: " );
+      DEBUG_PRINTLN( PWM );
       analogWrite( pwm_pin, map( PWM, 0, 100, 0, 255 ));              // remap 0-100% duty range to 0-255
       lastPWM = PWM;
     }  
   
   if ( value != lastValue ) lastValue = value;
-  
+
+  if ( millis() - lastPWMTime > 20000 )  {                            // after 20s inactivity in rmp set menu, comeback to countdown
+     pwmset = false;
+     done = false;
+     DEBUG_PRINTLN( "Back to countdown" );
+
+  }  
   display.showNumberDecEx( dutyPWM, 0x80 >> false , false );          // show pwm duty, no colon, no leading zeros
   
   buttonCheck();                                                      // check rotary encoder button
@@ -211,15 +227,15 @@ void countdown() {
         colon =! colon;
         if ( colon ) {                                                // print timer countdown with about 1s period
           if ( n_hours )  {
-            Serial.print( n_hours );
-            Serial.print( " Hours " );
+            DEBUG_PRINT( n_hours );
+            DEBUG_PRINT( " Hours " );
           }
           if ( n_minutes )  {
-           Serial.print( n_minutes );
-            Serial.print( " Minutes " );
+           DEBUG_PRINT( n_minutes );
+            DEBUG_PRINT( " Minutes " );
           }  
-          Serial.print( n_seconds );
-          Serial.println( " Seconds" );
+          DEBUG_PRINT( n_seconds );
+          DEBUG_PRINTLN( " Seconds" );
         }
    }
    if ( !n_hours ) {                                                  
@@ -234,7 +250,7 @@ void countdown() {
    }
                                                                       // show time, hours in first two positions, with colon and leading zeros enabled 
 
-   display.showNumberDecEx( timeToInteger( n_hours, n_minutes ), 0x80 >> colon, timerHours == 0 );
+   display.showNumberDecEx( timeToInteger( n_hours, n_minutes ), 0x80 >> colon, n_hours == 0 );
 
    buttonCheck();                                                     // check rotary encoder button
    timeCheck();                                                       // check timer if finished
@@ -259,38 +275,38 @@ void buttonCheck() {
   
  ClickEncoder::Button b = encoder -> getButton();
    if ( b != ClickEncoder::Open ) {
-      Serial.print( "Button: " );
+      DEBUG_PRINT( "Button: " );
       
-      #define VERBOSECASE( label ) case label: Serial.println( #label ); break;
+      #define VERBOSECASE( label ) case label: DEBUG_PRINTLN( #label ); break;
       
       switch ( b ) {
          VERBOSECASE( ClickEncoder::Pressed );
          VERBOSECASE( ClickEncoder::Released )
          
        case ClickEncoder::Clicked:
-         Serial.println( "ClickEncoder::Clicked" );
+         DEBUG_PRINTLN( "ClickEncoder::Clicked" );
          if ( !isTimerFinished() )  {                                 // can't set pwm duty or start countdown if timer not set (00:00)
             if ( !pwmset )  {                                         // set pwm duty to gear motor
                 analogWrite( pwm_pin, map( PWM, 0, 100, 0, 255 ));
                 dutyPWM = PWM;
                 pwmset = true;
-                Serial.println( "PWM set" );
+                DEBUG_PRINTLN( "PWM set" );
             }
             else {                                                    // start or go back to countdown if pwm set 
               done = false;
               pwmset = false;
-              Serial.println( "Countdown" );
+              DEBUG_PRINTLN( "Countdown" );
             } 
          }
        break;
                 
        case ClickEncoder::Held:                                       // timer reset if rotary encoder button held for about 2s
-         Serial.println( "ClickEncoder::Held" );
+         DEBUG_PRINTLN( "ClickEncoder::Held" );
          if ( !done ) timerFinished();
        break;
 
        case ClickEncoder::DoubleClicked:                              // save config if rotary encoder button double clicked
-         Serial.println( "ClickEncoder::DoubleClicked" );
+         DEBUG_PRINTLN( "ClickEncoder::DoubleClicked" );
           if ( done && !isTimerFinished() ) {
             cfg.timerHours = timerHours;
             cfg.timerMinutes = timerMinutes;
@@ -333,7 +349,7 @@ void timerFinished()  {
   pwmset = false;
   done = true;
   analogWrite( pwm_pin, 0 );
-  Serial.println( "Timer finished" );
+  DEBUG_PRINTLN( "Timer finished" );
   
 }
 
@@ -344,6 +360,7 @@ void loop() {
   if ( !pwmset ) {
     if ( done ) menuTimer();
     else countdown();
+    lastPWMTime = millis();
   }
   else
     menuPWM();
